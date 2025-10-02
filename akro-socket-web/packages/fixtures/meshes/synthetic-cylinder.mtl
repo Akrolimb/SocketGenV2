@@ -1,0 +1,8 @@
+# Material for synthetic cylinder
+newmtl synthetic_limb
+Ka 0.2 0.2 0.2
+Kd 0.8 0.8 0.8
+Ks 0.1 0.1 0.1
+Ns 10.0
+illum 2
+map_Kd markings.png

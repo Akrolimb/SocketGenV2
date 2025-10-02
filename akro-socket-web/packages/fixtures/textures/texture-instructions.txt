@@ -1,0 +1,12 @@
+
+# Instructions to create markings.png:
+
+1. Create a 1024x1024 PNG image
+2. Use a white/light gray background
+3. Add test markings:
+   - Red horizontal lines at 25%, 50%, 75% height (trimlines)
+   - Green vertical bands at 30° and 150° angles (relief areas)
+   - Blue patches at 0° and 180° (load areas)  
+   - Yellow dots at anatomical landmarks
+
+This texture will be used for testing the HSV color detection algorithm.
