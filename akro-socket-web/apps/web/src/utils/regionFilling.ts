@@ -203,3 +203,60 @@ export function isPointInRegion(point: THREE.Vector3, region: ClosedRegion): boo
   
   return toPoint.length() <= maxDistance
 }
+
+/**
+ * Create a simple filled region from stroke points (more reliable)
+ */
+export function createSimpleFilledRegion(
+  points: THREE.Vector3[],
+  color: string,
+  opacity: number
+): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry()
+  
+  if (points.length < 3) {
+    return geometry
+  }
+  
+  // Calculate centroid
+  const centroid = new THREE.Vector3()
+  points.forEach(point => centroid.add(point))
+  centroid.divideScalar(points.length)
+  
+  const vertices: number[] = []
+  const indices: number[] = []
+  
+  // Add centroid as first vertex
+  vertices.push(centroid.x, centroid.y, centroid.z)
+  
+  // Add all stroke points
+  points.forEach(point => {
+    vertices.push(point.x, point.y, point.z)
+  })
+  
+  // Create triangular faces from centroid to consecutive points
+  for (let i = 1; i < points.length; i++) {
+    indices.push(0, i, i + 1)
+  }
+  // Close the loop
+  indices.push(0, points.length, 1)
+  
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  geometry.computeBoundingBox()
+  
+  console.log('📐 Created fill geometry:', {
+    inputPoints: points.length,
+    vertices: vertices.length / 3,
+    triangles: indices.length / 3,
+    centroid: [centroid.x, centroid.y, centroid.z],
+    bounds: geometry.boundingBox,
+    firstVertex: [vertices[0], vertices[1], vertices[2]],
+    hasNormals: geometry.attributes.normal ? true : false,
+    color,
+    opacity
+  })
+  
+  return geometry
+}

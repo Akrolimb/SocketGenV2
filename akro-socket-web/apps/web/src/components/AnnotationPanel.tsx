@@ -194,10 +194,10 @@ export const AnnotationPanel: React.FC<AnnotationPanelProps> = ({
             }}>
               • <strong>Click and drag</strong> to paint tiny, precise areas
               • <strong>+ / -</strong> keys to adjust brush size (0.01-0.2)
-              • <strong>Close loops</strong> to auto-fill regions
-              • Camera locked during painting (no interference)
+              • <strong>Draw a loop</strong> - return close to start point to auto-fill
+              • <strong>Check console</strong> (F12) for fill detection status
+              • Camera locked during painting (no interference)  
               • Annotations applied directly on mesh surface
-              • Each type has optimized micro-brush size
             </div>
           </div>
         </div>

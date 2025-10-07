@@ -12,7 +12,7 @@ import { AnnotationRaycaster } from '../../utils/raycasting'
 import { useAnnotationContext } from '../../contexts/AnnotationContext'
 import { DEFAULT_ANNOTATION_CONFIG } from '../../types/annotations'
 import { paintMeshRegion, PaintStroke } from '../../utils/meshPainting'
-import { findClosedRegions, createFilledRegion } from '../../utils/regionFilling'
+import { createSimpleFilledRegion } from '../../utils/regionFilling'
 
 interface RegionAnnotationManagerProps {
   camera: THREE.Camera
@@ -144,6 +144,20 @@ export const RegionAnnotationManager: React.FC<RegionAnnotationManagerProps> = (
           points: [...currentStroke.points, intersection.point.clone()]
         }
         setCurrentStroke(updatedStroke)
+        
+        // Check if we're close to the start point (for loop preview)
+        const startPoint = currentStroke.points[0]
+        const currentPoint = intersection.point
+        const loopDistance = startPoint.distanceTo(currentPoint)
+        const tolerance = Math.max(brushSize * 10, 0.5)
+        
+        if (loopDistance <= tolerance && currentStroke.points.length >= 4) {
+          console.log('🔄 Close to completing loop!', {
+            distance: loopDistance,
+            tolerance: tolerance,
+            pointCount: currentStroke.points.length
+          })
+        }
       }
     }
   }, [isPainting, enabled, isAnnotationMode, currentStroke, lastPaintPosition, brushSize, canvasElement, meshes, camera])
@@ -169,30 +183,70 @@ export const RegionAnnotationManager: React.FC<RegionAnnotationManagerProps> = (
       }
 
       // Check for closed regions and fill them
-      const closedRegions = findClosedRegions(currentStroke.points, brushSize * 2)
+      console.log('🔍 Checking for closed regions', {
+        pointCount: currentStroke.points.length,
+        brushSize,
+        tolerance: brushSize * 2
+      })
       
-      if (closedRegions.length > 0 && overlayGroupRef.current) {
-        console.log('🎯 Found closed region, creating fill', closedRegions[0])
+      // Simple check: is the end point close to the start point?
+      const startPoint = currentStroke.points[0]
+      const endPoint = currentStroke.points[currentStroke.points.length - 1]
+      const distance = startPoint.distanceTo(endPoint)
+      const tolerance = Math.max(brushSize * 10, 0.5) // More generous tolerance
+      
+      const isSimpleClosed = currentStroke.points.length >= 4 && distance <= tolerance
+      
+      if (isSimpleClosed && overlayGroupRef.current) {
+        console.log('✅ Simple closed loop detected, creating fill')
         
-        // Create filled region for the largest closed area
-        const region = closedRegions[0]
         const config = DEFAULT_ANNOTATION_CONFIG[activeAnnotationType]
         
-        // Create surface normal (simplified - could be improved)
-        const normal = new THREE.Vector3(0, 1, 0) // Default up vector
-        
-        const fillGeometry = createFilledRegion(region, normal, config.color, config.opacity * 0.5)
-        const fillMaterial = new THREE.MeshLambertMaterial({
+        // Create a simple filled region using the stroke points
+        const fillGeometry = createSimpleFilledRegion(currentStroke.points, config.color, config.opacity * 0.5)
+        const fillMaterial = new THREE.MeshBasicMaterial({
           color: config.color,
           transparent: true,
-          opacity: config.opacity * 0.3, // More transparent for fill
+          opacity: config.opacity * 0.5,
           side: THREE.DoubleSide,
-          depthWrite: false
+          depthWrite: false,
+          depthTest: false,
+          blending: THREE.AdditiveBlending
         })
         
         const fillMesh = new THREE.Mesh(fillGeometry, fillMaterial)
         fillMesh.name = `region-fill-${Date.now()}`
+        
+        // Make sure the mesh is visible
+        fillMesh.visible = true
+        fillMesh.frustumCulled = false
+        
         overlayGroupRef.current.add(fillMesh)
+        
+        console.log('🎨 Created fill mesh:', {
+          vertices: fillGeometry.attributes.position.count,
+          indices: fillGeometry.index?.count,
+          material: {
+            color: fillMaterial.color.getHexString(),
+            opacity: fillMaterial.opacity,
+            transparent: fillMaterial.transparent
+          },
+          mesh: {
+            visible: fillMesh.visible,
+            position: fillMesh.position,
+            scale: fillMesh.scale
+          },
+          scene: overlayGroupRef.current.children.length
+        })
+      } else {
+        console.log('❌ No closed region detected', {
+          pointCount: currentStroke.points.length,
+          distance: distance,
+          tolerance: tolerance,
+          isSimpleClosed,
+          startPoint: startPoint,
+          endPoint: endPoint
+        })
       }
 
       // Add to context (this will update the annotations list)
@@ -274,6 +328,57 @@ export const RegionAnnotationManager: React.FC<RegionAnnotationManagerProps> = (
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isAnnotationMode, increaseBrushSize, decreaseBrushSize])
+
+  // Debug: Expose test function to window for manual testing
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).testRegionFill = () => {
+        console.log('🧪 Manual region fill test')
+        if (overlayGroupRef.current) {
+          // Create a test square
+          const testPoints = [
+            new THREE.Vector3(-1, 0, 0),
+            new THREE.Vector3(1, 0, 0), 
+            new THREE.Vector3(1, 2, 0),
+            new THREE.Vector3(-1, 2, 0),
+            new THREE.Vector3(-0.9, 0.1, 0) // Close to start
+          ]
+          
+          const fillGeometry = createSimpleFilledRegion(testPoints, '#00ff00', 0.5)
+          const fillMaterial = new THREE.MeshBasicMaterial({
+            color: '#00ff00',
+            transparent: true,
+            opacity: 0.7,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            depthTest: false,
+            blending: THREE.AdditiveBlending
+          })
+          
+          const fillMesh = new THREE.Mesh(fillGeometry, fillMaterial)
+          fillMesh.name = 'test-fill'
+          overlayGroupRef.current.add(fillMesh)
+          
+          console.log('✅ Test fill added to scene')
+        }
+      }
+    }
+    
+    // Debug function to list all fills
+    ;(window as any).listFills = () => {
+      if (overlayGroupRef.current) {
+        const fills = overlayGroupRef.current.children.filter(child => 
+          child.name.includes('region-fill') || child.name.includes('test-fill')
+        )
+        console.log('🔍 Found', fills.length, 'fill objects:', fills.map(f => ({
+          name: f.name,
+          visible: f.visible,
+          material: (f as THREE.Mesh).material
+        })))
+        return fills
+      }
+    }
+  }, [])
 
   return null // This component doesn't render JSX
 }
