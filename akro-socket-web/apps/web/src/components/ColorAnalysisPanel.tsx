@@ -16,7 +16,7 @@ export const ColorAnalysisPanel: React.FC<ColorAnalysisPanelProps> = ({
   const [materials, setMaterials] = useState<MaterialAnalysis[]>([])
   const [colorPalettes, setColorPalettes] = useState<Map<string, ColorEntry[]>>(new Map())
   const [loading, setLoading] = useState(false)
-  const [hoveredColor, setHoveredColor] = useState<ColorEntry | null>(null)
+  const [_hoveredColor, setHoveredColor] = useState<ColorEntry | null>(null)
   const [selectedColors, setSelectedColors] = useState<Set<string>>(new Set())
   const [highlightStats, setHighlightStats] = useState<HighlightStats | null>(null)
   const [isHighlighting, setIsHighlighting] = useState(false)
@@ -24,44 +24,21 @@ export const ColorAnalysisPanel: React.FC<ColorAnalysisPanelProps> = ({
   // Advanced highlighting controller
   const highlightControllerRef = useRef<ColorHighlightController | null>(null)
   
-  // Initialize highlighting controller when mesh changes
-  useEffect(() => {
-    if (!mesh) {
-      highlightControllerRef.current?.cleanup()
-      highlightControllerRef.current = null
-      return
-    }
-    
-    // Initialize controller for the mesh
-    highlightControllerRef.current = new ColorHighlightController()
-    const success = highlightControllerRef.current.setupMeshHighlighting(mesh)
-    if (!success) {
-      console.warn('Failed to setup mesh highlighting')
-    }
-      
-    return () => {
-      highlightControllerRef.current?.cleanup()
-    }
-  }, [mesh])
-
+  // Combined effect: analyze materials FIRST, then setup highlighting
   useEffect(() => {
     if (!mesh) {
       setMaterials([])
       setColorPalettes(new Map())
+      highlightControllerRef.current?.cleanup()
+      highlightControllerRef.current = null
       return
     }
 
     console.log('🎨 Analyzing mesh materials and colors...', mesh)
     setLoading(true)
 
-    // CRITICAL: Ensure no highlighting is active when analyzing materials
-    if (mesh.userData.originalMaterial) {
-      console.log('🔧 Restoring original materials from highlighting')
-      mesh.material = mesh.userData.originalMaterial
-      delete mesh.userData.originalMaterial
-    }
-
-    // Analyze materials
+    // STEP 1: Analyze the ORIGINAL materials FIRST (before highlighting changes them)
+    console.log('� Step 1: Analyzing original materials')
     const materialAnalysis = analyzeMaterials(mesh)
     console.log('📊 Material analysis result:', materialAnalysis)
     setMaterials(materialAnalysis)
@@ -87,8 +64,28 @@ export const ColorAnalysisPanel: React.FC<ColorAnalysisPanelProps> = ({
         })
         console.log('🎨 Final color palette map:', paletteMap)
         setColorPalettes(paletteMap)
+        
+        // STEP 2: Now setup highlighting AFTER color analysis is complete
+        console.log('🎯 Step 2: Setting up highlighting controller')
+        highlightControllerRef.current = new ColorHighlightController()
+        
+        // STEP 2: Now setup highlighting on the original mesh (Canvas3D no longer clones)
+        console.log('🎯 Setting up highlighting controller on original mesh')
+        const success = highlightControllerRef.current.setupMeshHighlighting(mesh)
+        if (!success) {
+          console.warn('Failed to setup mesh highlighting')
+        } else {
+          console.log('✅ Highlighting setup complete - ready for interactive highlighting')
+        }
+      })
+      .catch(error => {
+        console.error('❌ Error in material analysis:', error)
       })
       .finally(() => setLoading(false))
+      
+    return () => {
+      highlightControllerRef.current?.cleanup()
+    }
   }, [mesh])
 
   // Handle color hover - advanced highlighting with texture analysis
@@ -98,10 +95,19 @@ export const ColorAnalysisPanel: React.FC<ColorAnalysisPanelProps> = ({
     if (!mesh || !highlightControllerRef.current) {
       console.warn('⚠️ Missing dependencies for highlighting:', { 
         mesh: !!mesh, 
-        controller: !!highlightControllerRef.current 
+        controller: !!highlightControllerRef.current,
+        meshMaterial: mesh?.material,
+        materialType: mesh?.material?.type
       })
       return
     }
+    
+    console.log('🔍 Mesh material debug:', {
+      materialType: mesh.material?.type,
+      isArray: Array.isArray(mesh.material),
+      hasUniforms: mesh.material && 'uniforms' in mesh.material,
+      uniformKeys: mesh.material && 'uniforms' in mesh.material ? Object.keys(mesh.material.uniforms) : 'none'
+    })
     
     setHoveredColor(color)
     
@@ -110,13 +116,32 @@ export const ColorAnalysisPanel: React.FC<ColorAnalysisPanelProps> = ({
       setIsHighlighting(true)
       try {
         console.log('🎨 Starting color highlighting:', `#${color.color.getHexString()}`, 'HSV:', color.hsv)
+        console.log('🎯 About to call highlightColor on controller')
+        
+        // Verify mesh material is our shader
+        console.log('🔍 Current mesh material before highlighting:', {
+          type: mesh.material?.type,
+          isShaderMaterial: mesh.material?.type === 'ShaderMaterial',
+          hasUniforms: mesh.material && 'uniforms' in mesh.material,
+          enableHighlight: mesh.material && 'uniforms' in mesh.material ? (mesh.material as any).uniforms.enableHighlight?.value : 'n/a'
+        })
+        
         highlightControllerRef.current.highlightColor(color.hsv)
+        
+        // Verify after highlighting call
+        setTimeout(() => {
+          console.log('🔍 Current mesh material after highlighting:', {
+            type: mesh.material?.type,
+            isShaderMaterial: mesh.material?.type === 'ShaderMaterial',
+            enableHighlight: mesh.material && 'uniforms' in mesh.material ? (mesh.material as any).uniforms.enableHighlight?.value : 'n/a'
+          })
+        }, 100)
         setHighlightStats({ 
           matchingPixels: 0, 
           coverage: 0, 
           boundingBox: { min: [0, 0], max: [1, 1] } 
         })
-        console.log('✅ Color highlighting applied successfully')
+        console.log('✅ Color highlighting command sent')
       } catch (error) {
         console.warn('❌ Highlighting failed:', error)
         setHighlightStats(null)

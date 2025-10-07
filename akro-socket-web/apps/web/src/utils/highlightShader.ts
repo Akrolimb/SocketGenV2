@@ -69,32 +69,25 @@ export const highlightFragmentShader = `
   }
 
   void main() {
-    // Sample original texture
+    // Sample original texture - NO MODIFICATIONS to preserve exact appearance
     vec4 originalColor = texture2D(originalTexture, vUv);
-    vec3 finalColor = originalColor.rgb * baseColor;
     
+    // Start with exact original color - no darkening whatsoever
+    vec3 finalColor = originalColor.rgb;
+    
+    // Only add highlighting if enabled
     if (enableHighlight) {
       // Sample highlight mask
       float maskValue = texture2D(highlightMask, vUv).r;
       
       if (maskValue > 0.5) {
-        // Apply highlight effect
+        // Simple color overlay highlighting
         vec3 highlight = highlightColor * highlightIntensity;
         
-        // Blend highlight with original color
-        finalColor = mix(finalColor, highlight, highlightOpacity * maskValue);
-        
-        // Add subtle glow effect
-        finalColor += highlightColor * 0.1 * maskValue;
+        // Blend highlight over original - don't replace the texture
+        finalColor = mix(finalColor, highlight, highlightOpacity * maskValue * 0.7);
       }
     }
-    
-    // Simple lighting
-    vec3 normal = normalize(vNormal);
-    vec3 lightDir = normalize(vec3(1.0, 1.0, 1.0));
-    vec3 viewDir = normalize(cameraPosition - vWorldPosition);
-    
-    finalColor = calculateLighting(finalColor, normal, lightDir, viewDir);
     
     gl_FragColor = vec4(finalColor, originalColor.a);
   }
@@ -135,6 +128,13 @@ export function createHighlightMaterial(
   
   const maskTexture = new THREE.CanvasTexture(maskCanvas)
   maskTexture.needsUpdate = true
+
+  console.log('🔧 Creating highlight material with:', {
+    hasTexture: !!originalTexture,
+    textureSize: originalTexture ? `${originalTexture.image?.width}x${originalTexture.image?.height}` : 'none',
+    baseColor: `#${baseColor.getHexString()}`,
+    highlightColor: `#${highlightColor.getHexString()}`
+  })
 
   const material = new THREE.ShaderMaterial({
     vertexShader: highlightVertexShader,

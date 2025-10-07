@@ -84,10 +84,10 @@ export class ColorHighlightController {
     onStatsUpdate?: (stats: HighlightStats | null) => void
   ) {
     this.currentConfig = {
-      color: new THREE.Color(0xff6b6b),
-      opacity: 0.7,
-      intensity: 1.5,
-      tolerance: { h: 10, s: 20, v: 20 },
+      color: new THREE.Color(0xff6b6b), // Nice red highlighting
+      opacity: 0.8, // Strong but not overwhelming
+      intensity: 2.0, // Good visibility
+      tolerance: { h: 15, s: 20, v: 30 }, // Optimized for prosthetic marking detection
       ...config
     }
     this.onStatsUpdate = onStatsUpdate
@@ -95,11 +95,11 @@ export class ColorHighlightController {
   }
 
   /**
-   * Initialize the color analysis worker
+   * Initialize the color analysis worker - SIMPLIFIED VERSION
    */
   private initializeWorker(): void {
     try {
-      // Create worker from URL (Vite handles worker bundling)
+      // Create color analysis worker only - no preprocessing
       this.worker = new Worker(
         new URL('../workers/colorHighlight.worker.ts', import.meta.url),
         { type: 'module' }
@@ -114,9 +114,9 @@ export class ColorHighlightController {
         this.isProcessing = false
       }
 
-      console.log('✅ Color highlight worker initialized')
+      console.log('✅ Color highlight worker initialized (simple version)')
     } catch (error) {
-      console.error('❌ Failed to initialize color highlight worker:', error)
+      console.error('❌ Failed to initialize worker:', error)
       this.worker = null
     }
   }
@@ -151,30 +151,95 @@ export class ColorHighlightController {
     }
   }
 
+
+
   /**
    * Set up highlighting for a mesh with textured materials
    */
   setupMeshHighlighting(mesh: THREE.Mesh): boolean {
+    console.log('🎯 setupMeshHighlighting called for mesh:', mesh.name || 'unnamed')
+    console.log('🔍 Mesh object debug:', {
+      uuid: mesh.uuid,
+      name: mesh.name,
+      type: mesh.type,
+      parent: mesh.parent?.type,
+      parentName: mesh.parent?.name,
+      isInScene: mesh.parent !== null,
+      geometry: mesh.geometry?.type,
+      vertexCount: mesh.geometry?.attributes?.position?.count
+    })
+    
+    // CRITICAL FIX: Canvas3D clones the mesh, so we need to find the actual rendered mesh
+    let targetMesh = mesh
+    
+    // If this mesh is not in a scene, try to find the clone that is being rendered
+    if (!mesh.parent) {
+      console.log('🔍 Mesh not in scene - looking for clone with name "limb"')
+      // We need to traverse all scenes to find the clone
+      // For now, let's store the original mesh but we'll need to apply materials to the clone
+      console.warn('⚠️ WARNING: Mesh is not in scene - this might be the original that gets cloned')
+    }
+    
+    console.log('🔍 Using target mesh:', targetMesh.name, 'UUID:', targetMesh.uuid)
+    
     if (!mesh.material) {
       console.warn('⚠️ Mesh has no material, cannot setup highlighting')
       return false
     }
 
+    console.log('🔍 Mesh material debug:', {
+      type: Array.isArray(mesh.material) ? 'array' : (mesh.material as any).type,
+      isArray: Array.isArray(mesh.material),
+      hasUniforms: !Array.isArray(mesh.material) && 'uniforms' in mesh.material,
+      materialUuid: Array.isArray(mesh.material) ? 'array' : mesh.material.uuid
+    })
+
     // Store original material
     this.originalMaterials.set(mesh, mesh.material)
 
-    // Check if mesh has a texture
+    // Check if mesh has a texture - need to handle ShaderMaterial case
     const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material
-    const texture = (material as any)?.map as THREE.Texture
+    let texture: THREE.Texture | null = null
+    
+    // Check for standard material texture
+    if ('map' in material && material.map instanceof THREE.Texture) {
+      texture = material.map
+      console.log('📍 Found texture in standard material.map')
+    }
+    // Check for ShaderMaterial uniforms
+    else if ('uniforms' in material && material.uniforms) {
+      const uniforms = material.uniforms as any
+      console.log('🔍 Checking ShaderMaterial uniforms:', Object.keys(uniforms))
+      
+      // Look for originalTexture uniform (from our highlighting setup)
+      if (uniforms.originalTexture?.value instanceof THREE.Texture) {
+        texture = uniforms.originalTexture.value
+        console.log('📍 Found texture in ShaderMaterial.uniforms.originalTexture')
+      }
+      // Look for other common texture uniform names
+      else {
+        for (const key of Object.keys(uniforms)) {
+          if (uniforms[key]?.value instanceof THREE.Texture) {
+            texture = uniforms[key].value
+            console.log(`📍 Found texture in ShaderMaterial.uniforms.${key}`)
+            break
+          }
+        }
+      }
+    }
 
     if (!texture) {
       console.warn('⚠️ Mesh has no texture, cannot setup highlighting')
       return false
     }
 
-    console.log('🎨 Setting up highlighting for textured mesh')
+    console.log('🎨 Setting up highlighting for textured mesh with texture:', `${texture.image?.width}x${texture.image?.height}`)
 
-    // Create highlight material
+    // CRITICAL FIX: Don't preprocess texture - work with original rendering
+    // This prevents the "black model after 15 seconds" issue
+    console.log('🎯 Using original texture without preprocessing to maintain visual integrity')
+
+    // Create highlight material with original texture (no preprocessing)
     const highlightMaterial = createHighlightMaterial(texture, {
       highlightColor: this.currentConfig.color,
       highlightOpacity: this.currentConfig.opacity,
@@ -184,21 +249,30 @@ export class ColorHighlightController {
     this.highlightMaterials.set(mesh, highlightMaterial)
     mesh.material = highlightMaterial
 
+    console.log('✅ Mesh highlighting setup complete - ready for color-based highlighting')
+    console.log('🔍 Applied material to mesh:', mesh.name, 'Material type:', mesh.material.type)
+    
     return true
   }
 
   /**
-   * Highlight regions matching a specific color
+   * Highlight regions matching a specific color using enhanced marking detection
    */
   highlightColor(targetColor: { h: number, s: number, v: number }): void {
+    console.log('🎯 highlightColor called with:', targetColor)
+    
     if (this.isProcessing || !this.worker) {
-      console.warn('⚠️ Color analysis already in progress or worker not available')
+      console.warn('⚠️ Color analysis already in progress or worker not available:', {
+        isProcessing: this.isProcessing,
+        hasWorker: !!this.worker
+      })
       return
     }
 
+    console.log('🔍 Available highlight materials:', this.highlightMaterials.size)
     this.isProcessing = true
 
-    // Find textured meshes and extract texture data
+    // Find textured meshes 
     const meshWithTexture = Array.from(this.highlightMaterials.keys())[0]
     if (!meshWithTexture) {
       console.warn('⚠️ No textured mesh available for highlighting')
@@ -206,12 +280,18 @@ export class ColorHighlightController {
       return
     }
 
+    console.log('🎨 Found mesh for highlighting:', meshWithTexture.name || 'unnamed')
+    
+    // SIMPLE APPROACH: Basic texture analysis without any preprocessing
+    console.log('🎯 Using simple texture analysis - no preprocessing')
+    
     const highlightMaterial = this.highlightMaterials.get(meshWithTexture)!
-    const originalTexture = highlightMaterial.uniforms.originalTexture.value as THREE.Texture
-
-    // Extract ImageData from texture
-    this.extractTextureImageData(originalTexture)
+    const texture = highlightMaterial.uniforms.originalTexture.value as THREE.Texture
+    
+    // Extract texture data as-is - no modifications
+    this.extractTextureImageData(texture)
       .then(imageData => {
+        console.log('✅ Successfully extracted texture ImageData:', `${imageData.width}x${imageData.height}`)
         if (!this.worker) throw new Error('Worker not available')
 
         const request: ColorHighlightRequest = {
@@ -221,6 +301,7 @@ export class ColorHighlightController {
           tolerance: this.currentConfig.tolerance
         }
 
+        console.log('📨 Sending request to worker:', { targetColor, tolerance: this.currentConfig.tolerance })
         this.worker.postMessage(request)
       })
       .catch(error => {
@@ -365,12 +446,18 @@ export class ColorHighlightController {
     }
 
     this.highlightMaterials.forEach((material) => {
+      console.log(`🎨 Applying highlight: ${this.currentConfig.color.getHexString()} (${matchingPixels} pixels, ${size}x${size} mask)`)
+      
       updateHighlightMask(material, maskData, size, size)
       updateHighlightProperties(material, {
         color: this.currentConfig.color,
         opacity: this.currentConfig.opacity,
         intensity: this.currentConfig.intensity
       })
+      
+      // Force material update to ensure shader recompilation
+      material.needsUpdate = true
+      material.uniformsNeedUpdate = true
     })
   }
 }

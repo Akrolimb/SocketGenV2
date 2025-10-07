@@ -28,7 +28,6 @@ interface ColorHighlightResponse {
   highlightMask?: Uint8Array
   matchingPixels?: number
   coverage?: number
-  boundingBox?: { min: [number, number], max: [number, number] }
   error?: string
 }
 
@@ -65,7 +64,7 @@ function rgbToHsv(r: number, g: number, b: number): [number, number, number] {
 }
 
 /**
- * Check if two HSV colors match within tolerance
+ * Check if two HSV colors match within tolerance with improved logic
  */
 function colorMatches(
   hsv1: [number, number, number], 
@@ -81,28 +80,27 @@ function colorMatches(
     hDiff = 360 - hDiff
   }
 
-  return (
-    hDiff <= tolerance.h &&
-    Math.abs(s1 - s2) <= tolerance.s &&
-    Math.abs(v1 - v2) <= tolerance.v
-  )
+  // SIMPLE COLOR MATCHING - no complex logic
+  const hueMatch = hDiff <= tolerance.h
+  const satMatch = Math.abs(s1 - s2) <= tolerance.s
+  const valMatch = Math.abs(v1 - v2) <= tolerance.v
+
+  return hueMatch && satMatch && valMatch
 }
 
-/**
- * Analyze texture and create highlight mask for matching colors
- */
 function analyzeTexture(
   imageData: ImageData, 
-  targetColor: { h: number, s: number, v: number },
-  tolerance: { h: number, s: number, v: number }
-): { mask: Uint8Array, stats: { matchingPixels: number, coverage: number, boundingBox: { min: [number, number], max: [number, number] } } } {
+  targetColor: { h: number, s: number, v: number }
+): { mask: Uint8Array, stats: { matchingPixels: number, coverage: number } } {
   
   const { width, height, data } = imageData
   const mask = new Uint8Array(width * height)
   const targetHSV: [number, number, number] = [targetColor.h, targetColor.s, targetColor.v]
   
+  // Simple fixed tolerance
+  const tolerance = { h: 15, s: 25, v: 30 }
+  
   let matchingPixels = 0
-  let minX = width, minY = height, maxX = 0, maxY = 0
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -118,49 +116,45 @@ function analyzeTexture(
       const pixelHSV = rgbToHsv(r, g, b)
       
       if (colorMatches(pixelHSV, targetHSV, tolerance)) {
-        mask[y * width + x] = 255 // Mark as matching
+        mask[y * width + x] = 255
         matchingPixels++
-        
-        // Update bounding box
-        minX = Math.min(minX, x)
-        minY = Math.min(minY, y)
-        maxX = Math.max(maxX, x)
-        maxY = Math.max(maxY, y)
       }
     }
   }
 
   const coverage = matchingPixels / (width * height)
-  const boundingBox = matchingPixels > 0 ? 
-    { min: [minX / width, minY / height] as [number, number], max: [maxX / width, maxY / height] as [number, number] } :
-    { min: [0, 0] as [number, number], max: [0, 0] as [number, number] }
 
   return {
     mask,
-    stats: { matchingPixels, coverage, boundingBox }
+    stats: { matchingPixels, coverage }
   }
 }
 
 // Worker message handler
 self.onmessage = function(e: MessageEvent<ColorHighlightRequest>) {
-  const { type, imageData, targetColor, tolerance } = e.data
+  const { type, imageData, targetColor } = e.data
 
   try {
     switch (type) {
       case 'analyze':
-        if (!imageData || !targetColor || !tolerance) {
+        if (!imageData || !targetColor) {
           throw new Error('Missing required parameters for analysis')
         }
 
         console.log('🎨 Worker: Analyzing texture for color matching...')
-        const result = analyzeTexture(imageData, targetColor, tolerance)
+        
+        const result = analyzeTexture(imageData, targetColor)
+        
+        console.log('🎯 Color matching results:', {
+          matchingPixels: result.stats.matchingPixels,
+          coverage: `${(result.stats.coverage * 100).toFixed(2)}%`
+        })
         
         const response: ColorHighlightResponse = {
           type: 'analysis-complete',
           highlightMask: result.mask,
           matchingPixels: result.stats.matchingPixels,
-          coverage: result.stats.coverage,
-          boundingBox: result.stats.boundingBox
+          coverage: result.stats.coverage
         }
 
         self.postMessage(response)

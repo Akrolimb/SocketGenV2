@@ -2,6 +2,8 @@ import React, { useRef, useEffect, useState, useCallback } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { useCaseStore } from '../hooks/useCaseStore'
+import { RegionAnnotationManager } from './annotations/RegionAnnotationManager'
+// import { useAnnotationContext } from '../contexts/AnnotationContext'
 
 interface Canvas3DProps {
   className?: string
@@ -21,11 +23,15 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({ className = '' }) => {
   
   const [fps, setFps] = useState(0)
   const [showGrid, setShowGrid] = useState(true)
+  const [annotatableMeshes, setAnnotatableMeshes] = useState<THREE.Object3D[]>([])
   
   // Zustand store
   const limb = useCaseStore(state => state.limb)
   const markings = useCaseStore(state => state.markings)
   // const evidenceScene = useCaseStore(state => state.evidenceScene) // TODO: Use for evidence display
+
+  // Annotation context (for future use)
+  // const { annotations } = useAnnotationContext()
 
   // Performance monitoring
   const fpsCounter = useRef({ 
@@ -276,14 +282,17 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({ className = '' }) => {
     const existingLimb = sceneRef.current.getObjectByName('limb')
     if (existingLimb) {
       sceneRef.current.remove(existingLimb)
+      setAnnotatableMeshes([]) // Clear annotatable meshes when limb is removed
     }
 
-    // Add new limb mesh
+    // Add new limb mesh - using original mesh for annotation system compatibility
     if (limb) {
-      const limbClone = limb.clone()
+      const limbClone = limb // Use original mesh directly instead of cloning
       limbClone.name = 'limb'
       limbClone.castShadow = true
       limbClone.receiveShadow = true
+      
+      console.log('🔧 USING ORIGINAL MESH (not cloning) for material highlighting compatibility')
       
       // CRITICAL FIX: Don't override GLB materials! Preserve original materials
       console.log('🎯 PRESERVING GLB MATERIALS: Not overriding with gray material')
@@ -349,6 +358,9 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({ className = '' }) => {
       }
       
       sceneRef.current.add(limbClone)
+      
+      // Update annotatable meshes for annotation system
+      setAnnotatableMeshes([limbClone])
       
       // Fit camera to new object
       setTimeout(fitCameraToObject, 100)
@@ -473,6 +485,18 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({ className = '' }) => {
         ref={canvasRef}
         style={{ display: 'block', width: '100%', height: '100%' }}
       />
+      
+      {/* Region-Based Annotation System */}
+      {sceneRef.current && cameraRef.current && (
+        <RegionAnnotationManager
+          camera={cameraRef.current}
+          scene={sceneRef.current}
+          meshes={annotatableMeshes}
+          canvasElement={canvasRef.current}
+          enabled={true}
+          controls={controlsRef.current}
+        />
+      )}
       
       {/* FPS Counter */}
       <div style={{

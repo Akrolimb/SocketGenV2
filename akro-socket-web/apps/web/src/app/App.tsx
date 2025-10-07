@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import Canvas3D from '../components/Canvas3D'
 import WizardTabs from '../components/WizardTabs'
-import { ColorAnalysisPanel } from '../components/ColorAnalysisPanel'
+import { AnnotationPanel } from '../components/AnnotationPanel'
+import { AnnotationProvider } from '../contexts/AnnotationContext'
 import { useCaseStore } from '../hooks/useCaseStore'
 import './App.css'
 
@@ -21,16 +22,17 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="app">
-      <header className="app-header">
-        <h1>Akro Socket Generator</h1>
-        <button 
-          className="help-button"
-          onClick={() => setShowHelp(true)}
-        >
-          Help
-        </button>
-      </header>
+    <AnnotationProvider>
+      <div className="app">
+        <header className="app-header">
+          <h1>Akro Socket Generator</h1>
+          <button 
+            className="help-button"
+            onClick={() => setShowHelp(true)}
+          >
+            Help
+          </button>
+        </header>
       
       <div className="app-layout">
         <aside className="left-panel">
@@ -52,7 +54,7 @@ const App: React.FC = () => {
             </div>
           </div>
           
-          <ColorAnalysisPanel />
+          <AnnotationPanel />
           
           <div className="controls-section">
             <h3>View Controls</h3>
@@ -111,7 +113,8 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </AnnotationProvider>
   )
 
   function getCurrentStepName(): string {

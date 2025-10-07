@@ -293,7 +293,9 @@ function decimateMesh(mesh: THREE.Mesh, maxTriangles: number = 200000): {
 
 /**
  * Process loaded mesh for prosthetic socket generation
+ * @deprecated Currently unused - reserved for future mesh processing pipeline
  */
+// @ts-ignore - Unused function reserved for future use
 function processMesh(
   mesh: THREE.Mesh, 
   originalTriangleCount: number,
